@@ -6,7 +6,7 @@ import 'package:google_place/google_place.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await DotEnv().load('.env');
+  await DotEnv().load();
   runApp(MyApp());
 }
 
@@ -29,13 +29,17 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  GooglePlace googlePlace;
+  GooglePlace? _googlePlace;
   List<AutocompletePrediction> predictions = [];
 
   @override
   void initState() {
-    String apiKey = DotEnv().env['API_KEY'];
-    googlePlace = GooglePlace(apiKey);
+    String? apiKey = dotenv.env['API_KEY'];
+
+    if (apiKey != null) {
+      _googlePlace = GooglePlace(apiKey);
+    }
+
     super.initState();
   }
 
@@ -83,6 +87,9 @@ class _HomePageState extends State<HomePage> {
                 child: ListView.builder(
                   itemCount: predictions.length,
                   itemBuilder: (context, index) {
+                    String description = predictions[index].description ?? "";
+                    String placeId = predictions[index].placeId ?? "";
+
                     return ListTile(
                       leading: CircleAvatar(
                         child: Icon(
@@ -90,15 +97,20 @@ class _HomePageState extends State<HomePage> {
                           color: Colors.white,
                         ),
                       ),
-                      title: Text(predictions[index].description),
+                      title: Text(description),
                       onTap: () {
                         debugPrint(predictions[index].placeId);
+
+                        if (_googlePlace == null) {
+                          return;
+                        }
+
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => DetailsPage(
-                              placeId: predictions[index].placeId,
-                              googlePlace: googlePlace,
+                              placeId: placeId,
+                              googlePlace: _googlePlace!,
                             ),
                           ),
                         );
@@ -119,10 +131,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   void autoCompleteSearch(String value) async {
-    var result = await googlePlace.autocomplete.get(value);
+    if (_googlePlace == null) {
+      return;
+    }
+
+    var result = await _googlePlace?.autocomplete.get(value);
+
     if (result != null && result.predictions != null && mounted) {
       setState(() {
-        predictions = result.predictions;
+        predictions = result.predictions!;
       });
     }
   }
@@ -132,25 +149,23 @@ class DetailsPage extends StatefulWidget {
   final String placeId;
   final GooglePlace googlePlace;
 
-  DetailsPage({Key key, this.placeId, this.googlePlace}) : super(key: key);
+  DetailsPage({
+    Key? key,
+    required this.placeId,
+    required this.googlePlace,
+  }) : super(key: key);
 
   @override
-  _DetailsPageState createState() =>
-      _DetailsPageState(this.placeId, this.googlePlace);
+  DetailsPageState createState() => DetailsPageState();
 }
 
-class _DetailsPageState extends State<DetailsPage> {
-  final String placeId;
-  final GooglePlace googlePlace;
-
-  _DetailsPageState(this.placeId, this.googlePlace);
-
-  DetailsResult detailsResult;
-  List<Uint8List> images = [];
+class DetailsPageState extends State<DetailsPage> {
+  DetailsResult? _detailsResult;
+  List<Uint8List> _images = [];
 
   @override
   void initState() {
-    getDetils(this.placeId);
+    getDetails(widget.placeId);
     super.initState();
   }
 
@@ -164,7 +179,7 @@ class _DetailsPageState extends State<DetailsPage> {
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.blueAccent,
         onPressed: () {
-          getDetils(this.placeId);
+          getDetails(widget.placeId);
         },
         child: Icon(Icons.refresh),
       ),
@@ -178,7 +193,7 @@ class _DetailsPageState extends State<DetailsPage> {
                 height: 200,
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
-                  itemCount: images.length,
+                  itemCount: _images.length,
                   itemBuilder: (context, index) {
                     return Container(
                       width: 250,
@@ -190,7 +205,7 @@ class _DetailsPageState extends State<DetailsPage> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(10.0),
                           child: Image.memory(
-                            images[index],
+                            _images[index],
                             fit: BoxFit.fill,
                           ),
                         ),
@@ -208,115 +223,113 @@ class _DetailsPageState extends State<DetailsPage> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10.0),
                   ),
-                  child: ListView(
-                    children: <Widget>[
-                      Container(
-                        margin: EdgeInsets.only(left: 15, top: 10),
-                        child: Text(
-                          "Details",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      detailsResult != null && detailsResult.types != null
-                          ? Container(
+                  child: _detailsResult == null
+                      ? SizedBox.shrink()
+                      : ListView(
+                          children: <Widget>[
+                            Container(
                               margin: EdgeInsets.only(left: 15, top: 10),
-                              height: 50,
-                              child: ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: detailsResult.types.length,
-                                itemBuilder: (context, index) {
-                                  return Container(
-                                    margin: EdgeInsets.only(right: 10),
-                                    child: Chip(
-                                      label: Text(
-                                        detailsResult.types[index],
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      backgroundColor: Colors.blueAccent,
-                                    ),
-                                  );
-                                },
+                              child: Text(
+                                "Details",
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            )
-                          : Container(),
-                      Container(
-                        margin: EdgeInsets.only(left: 15, top: 10),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Icon(Icons.location_on),
-                          ),
-                          title: Text(
-                            detailsResult != null &&
-                                    detailsResult.formattedAddress != null
-                                ? 'Address: ${detailsResult.formattedAddress}'
-                                : "Address: null",
-                          ),
+                            ),
+                            _detailsResult?.types != null
+                                ? Container(
+                                    margin: EdgeInsets.only(left: 15, top: 10),
+                                    height: 50,
+                                    child: ListView.builder(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: _detailsResult?.types?.length,
+                                      itemBuilder: (context, index) {
+                                        return Container(
+                                          margin: EdgeInsets.only(right: 10),
+                                          child: Chip(
+                                            label: Text(
+                                              _detailsResult!.types![index],
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            backgroundColor: Colors.blueAccent,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : Container(),
+                            Container(
+                              margin: EdgeInsets.only(left: 15, top: 10),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  child: Icon(Icons.location_on),
+                                ),
+                                title: Text(
+                                  _detailsResult?.formattedAddress != null
+                                      ? 'Address: ${_detailsResult?.formattedAddress}'
+                                      : "Address: null",
+                                ),
+                              ),
+                            ),
+                            Container(
+                              margin: EdgeInsets.only(left: 15, top: 10),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  child: Icon(Icons.location_searching),
+                                ),
+                                title: Text(
+                                  _detailsResult?.geometry != null &&
+                                          _detailsResult?.geometry?.location !=
+                                              null
+                                      ? 'Geometry: ${_detailsResult?.geometry?.location?.lat.toString()},${_detailsResult?.geometry?.location?.lng.toString()}'
+                                      : "Geometry: null",
+                                ),
+                              ),
+                            ),
+                            Container(
+                              margin: EdgeInsets.only(left: 15, top: 10),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  child: Icon(Icons.timelapse),
+                                ),
+                                title: Text(
+                                  _detailsResult?.utcOffset != null
+                                      ? 'UTC offset: ${_detailsResult?.utcOffset.toString()} min'
+                                      : "UTC offset: null",
+                                ),
+                              ),
+                            ),
+                            Container(
+                              margin: EdgeInsets.only(left: 15, top: 10),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  child: Icon(Icons.rate_review),
+                                ),
+                                title: Text(
+                                  _detailsResult?.rating != null
+                                      ? 'Rating: ${_detailsResult?.rating.toString()}'
+                                      : "Rating: null",
+                                ),
+                              ),
+                            ),
+                            Container(
+                              margin: EdgeInsets.only(left: 15, top: 10),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  child: Icon(Icons.attach_money),
+                                ),
+                                title: Text(
+                                  _detailsResult?.priceLevel != null
+                                      ? 'Price level: ${_detailsResult?.priceLevel.toString()}'
+                                      : "Price level: null",
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      Container(
-                        margin: EdgeInsets.only(left: 15, top: 10),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Icon(Icons.location_searching),
-                          ),
-                          title: Text(
-                            detailsResult != null &&
-                                    detailsResult.geometry != null &&
-                                    detailsResult.geometry.location != null
-                                ? 'Geometry: ${detailsResult.geometry.location.lat.toString()},${detailsResult.geometry.location.lng.toString()}'
-                                : "Geometry: null",
-                          ),
-                        ),
-                      ),
-                      Container(
-                        margin: EdgeInsets.only(left: 15, top: 10),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Icon(Icons.timelapse),
-                          ),
-                          title: Text(
-                            detailsResult != null &&
-                                    detailsResult.utcOffset != null
-                                ? 'UTC offset: ${detailsResult.utcOffset.toString()} min'
-                                : "UTC offset: null",
-                          ),
-                        ),
-                      ),
-                      Container(
-                        margin: EdgeInsets.only(left: 15, top: 10),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Icon(Icons.rate_review),
-                          ),
-                          title: Text(
-                            detailsResult != null &&
-                                    detailsResult.rating != null
-                                ? 'Rating: ${detailsResult.rating.toString()}'
-                                : "Rating: null",
-                          ),
-                        ),
-                      ),
-                      Container(
-                        margin: EdgeInsets.only(left: 15, top: 10),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Icon(Icons.attach_money),
-                          ),
-                          title: Text(
-                            detailsResult != null &&
-                                    detailsResult.priceLevel != null
-                                ? 'Price level: ${detailsResult.priceLevel.toString()}'
-                                : "Price level: null",
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
               Container(
@@ -330,27 +343,34 @@ class _DetailsPageState extends State<DetailsPage> {
     );
   }
 
-  void getDetils(String placeId) async {
-    var result = await this.googlePlace.details.get(placeId);
-    if (result != null && result.result != null && mounted) {
+  void getDetails(String placeId) async {
+    DetailsResponse? response = await widget.googlePlace.details.get(placeId);
+
+    if (response != null && response.result != null && mounted) {
       setState(() {
-        detailsResult = result.result;
-        images = [];
+        _detailsResult = response.result;
+        _images = [];
       });
 
-      if (result.result.photos != null) {
-        for (var photo in result.result.photos) {
-          getPhoto(photo.photoReference);
+      if (response.result?.photos != null) {
+        List<Photo> photos = response.result?.photos ?? [];
+
+        for (var photo in photos) {
+          if (photo.photoReference != null) {
+            getPhoto(photo.photoReference!);
+          }
         }
       }
     }
   }
 
   void getPhoto(String photoReference) async {
-    var result = await this.googlePlace.photos.get(photoReference, null, 400);
+    Uint8List? result =
+        await widget.googlePlace.photos.get(photoReference, 400, 400);
+
     if (result != null && mounted) {
       setState(() {
-        images.add(result);
+        _images.add(result);
       });
     }
   }
